@@ -1,12 +1,15 @@
 [package]
-name = "server"
+name = "base"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-base = { version = "*", path = "../libs/base" }
+async-channel = { workspace = true }
+bytes = { workspace = true, features = ["serde"] }
+futures-util = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true }
+tokio-tungstenite = "0.18.0"
