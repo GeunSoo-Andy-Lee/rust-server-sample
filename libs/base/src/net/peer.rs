@@ -4,7 +4,7 @@ use async_channel::Sender;
 
 use crate::net::Data;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Peer
 {
     tx: Sender<Data>,   // Sender<SocketEvent>

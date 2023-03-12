@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, time::Duration, sync::Arc, str::FromStr};
 
 use async_channel::unbounded;
-use futures_util::{StreamExt, SinkExt};
+use futures_util::{StreamExt, SinkExt, Future};
 use tokio::net::{TcpListener, TcpStream};
 //use std::{net::{TcpStream, TcpListener}};
 //use tokio::{net::{ToSocketAddrs}};
@@ -10,7 +10,20 @@ use tokio_tungstenite::{WebSocketStream, accept_hdr_async};
 use tokio_tungstenite::tungstenite::{Message, Result, Error};
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response, ErrorResponse};
 
+use crate::buf::MemoryStream;
 use crate::net::{Peer, self};
+
+use super::{Codec, Processor};
+
+struct Context 
+{
+    keepalive: Duration,
+    address: SocketAddr,
+    demux: Processor,
+}
+
+//unsafe impl Send for Context {}
+
 
 #[derive(Default)]
 pub struct WebSocketListenerBuilder {
@@ -28,14 +41,10 @@ impl WebSocketListenerBuilder {
             context: Arc::new(Context {
                 keepalive: Duration::from_millis(5000),
                 address: SocketAddr::from_str("0.0.0.0:8000").expect("invalid address"),
+                demux: Processor::new(),
             })
         }
     }
-}
-
-struct Context {
-    keepalive: Duration,
-    address: SocketAddr,
 }
 
 pub struct WebSocketListener {
@@ -47,6 +56,11 @@ impl WebSocketListener {
     pub fn builder() -> WebSocketListenerBuilder {
         WebSocketListenerBuilder::new()
     }
+
+    //pub fn add_codec<C: Codec>(mut self, codec: C) -> Self {
+    //    self.context.pipeline.add(codec);
+    //    self
+    //}
 
     pub async fn start(self) -> std::io::Result<()> {
         let listener = TcpListener::bind(&self.context.address).await.expect("Can't listen");
@@ -95,16 +109,36 @@ async fn handle_accept(stream: TcpStream, context: Arc<Context>) -> std::io::Res
     Ok(())
 }
 
-async fn handle_receive(peer: SocketAddr, stream: WebSocketStream<TcpStream>, context: Arc<Context>) -> Result<()> {
+async fn process_receive(demux: &Processor, peer: Arc<Peer>, mut buffer: Arc<MemoryStream>) {
+
+    //peer.send(net::Data::Binary(data.into())).await;
+
+    loop {
+        match demux.inbound(Arc::clone(&buffer)) {
+            Ok(data) => {
+
+            },
+            Err(e) => {
+                Arc::get_mut(&mut buffer)
+                    .unwrap()
+                    .clear();
+
+                break
+            }
+        }
+    }
+}
+
+async fn handle_receive(endpoint: SocketAddr, stream: WebSocketStream<TcpStream>, context: Arc<Context>) -> Result<()> {
 
     let (mut write_sock_stream, mut read_sock_stream) = stream.split();
 
+    let (tx, rx) = unbounded::<net::Data>();
+    let peer = Arc::new(Peer::new(tx));
+
     let mut keepalive = tokio::time::interval(context.keepalive);
 
-    let (tx, rx) = unbounded::<net::Data>();
-    let end_point = Peer::new(tx);
-
-    // Echo incoming WebSocket messages and send a message periodically every second.
+    let mut buffer = Arc::new(MemoryStream::new());
     loop {
         tokio::select! {
             // 실제 소켓으로 부터 수신 되는 데이터
@@ -113,10 +147,12 @@ async fn handle_receive(peer: SocketAddr, stream: WebSocketStream<TcpStream>, co
                     Ok(data) => {
                         match data {
                             Message::Binary(data) => {
-                                end_point.send(net::Data::Binary(data.into())).await?
+                                Arc::get_mut(&mut buffer).unwrap().write(data);
+                                process_receive(&context.demux, Arc::clone(&peer), Arc::clone(&buffer)).await;
                             },
                             Message::Text(str) => {
-                                end_point.send(net::Data::Text(str)).await?
+                                Arc::get_mut(&mut buffer).unwrap().write(str);
+                                process_receive(&context.demux, Arc::clone(&peer), Arc::clone(&buffer)).await;
                             },
                             _ => break,
                         }
@@ -159,6 +195,6 @@ async fn handle_receive(peer: SocketAddr, stream: WebSocketStream<TcpStream>, co
         }
     }
 
-    log::info!("disconnect to {}", peer);
+    log::info!("disconnect to {}", endpoint);
     Ok(())
 }

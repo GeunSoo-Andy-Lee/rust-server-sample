@@ -1,4 +1,5 @@
 
+mod sample;
 
 #[tokio::main]
 async fn main() {
@@ -8,10 +9,10 @@ async fn main() {
     //let listener = TcpListener::bind(&addr).await.expect("Can't listen");
     //log::info!("Listening on: {}", addr);
     let builder = base::net::WebSocketListener::builder();
-    let server = builder.build();
 
-    let _x: base::net::Peer;
-    let _x: base::net::Data;
+    //builder.add_codec(sample::CodecA{});
+
+    let server = builder.build();
 
     server.start().await.unwrap();
 

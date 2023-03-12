@@ -8,6 +8,10 @@ pub use peer::*;
 mod websocket_listener;
 pub use websocket_listener::*;
 
+mod codec;
+pub use codec::*;
+
+
 pub enum Data {
     Binary(bytes::Bytes),
     Text(String),
